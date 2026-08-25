@@ -103,7 +103,7 @@ func SnapshotFromRequest(req LockRequest, rule domain.CatalogRule) *domain.LockS
 		LineageCode:    req.LineageCode,
 		BatchCode:      req.BatchCode,
 		MothBagDigest:  req.MothBagDigest,
-		CardSeals:      req.CardSeals,
+		CardSeals:      append([]string(nil), req.CardSeals...),
 		BlindCodes:     append([]string(nil), req.BlindCodes...),
 		DayAges:        append([]int(nil), req.DayAges...),
 		SlideNos:       append([]string(nil), req.SlideNos...),
