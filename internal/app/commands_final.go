@@ -88,12 +88,24 @@ type DecideRequest struct {
 	DecidedBy  string
 }
 
+// decideContent is the normalized content the Decide command hashes for
+// operation-id idempotency. The decision type arrives in the URL path
+// (admit|isolate|cancel) rather than the request body, so the body alone is
+// identical across all three decisions. Pairing the type with the body makes a
+// reused operation ID across different decisions hash as different content and
+// return OPERATION_CONFLICT instead of replaying the first decision's
+// response (e.g. an ADMIT credential for an ISOLATE call).
+type decideContent struct {
+	Type domain.FinalDecisionType
+	DecideRequest
+}
+
 // Decide competes the single terminal decision through the task-level unique
 // barrier. Admit requires concurring reviewers and a cold-storage cell lease;
 // the loser of a concurrent race reads the existing decision and either
 // replays it (same type) or returns FINAL_DECISION_CONFLICT (different type).
 func (s *Service) Decide(ctx context.Context, opID, taskID string, typ domain.FinalDecisionType, req DecideRequest) (int, any, error) {
-	return s.withOperation(ctx, opID, req, func(tx store.Tx) (int, any, error) {
+	return s.withOperation(ctx, opID, decideContent{Type: typ, DecideRequest: req}, func(tx store.Tx) (int, any, error) {
 		t, err := tx.GetTask(ctx, taskID)
 		if err != nil {
 			return 0, nil, mapStoreErr(err)
