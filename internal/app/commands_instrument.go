@@ -102,6 +102,8 @@ type RetryRequest struct {
 func (s *Service) RetryInstrumentCall(ctx context.Context, opID, callID string, req RetryRequest) (int, any, error) {
 	hash := contentHash(req)
 	var call domain.InstrumentCall
+	replay := false
+	var replayBody json.RawMessage
 	err := s.store.WithTx(ctx, func(tx store.Tx) error {
 		existing, err := tx.GetOperation(ctx, opID)
 		if err != nil {
@@ -114,6 +116,16 @@ func (s *Service) RetryInstrumentCall(ctx context.Context, opID, callID string, 
 					Message: "same operation ID with different content",
 				})
 			}
+			// Idempotent replay: return the original response verbatim and do
+			// not re-run the adapter or append a new attempt, otherwise a
+			// network-timeout resend with the same Operation-Id would drive a
+			// FAILED call to SUCCEEDED with a spurious zero-time attempt.
+			replay = true
+			var resp opResponse
+			if err := json.Unmarshal(existing.Response, &resp); err != nil {
+				return err
+			}
+			replayBody = resp.Body
 			return nil
 		}
 		c, err := tx.GetInstrumentCall(ctx, callID)
@@ -145,6 +157,13 @@ func (s *Service) RetryInstrumentCall(ctx context.Context, opID, callID string, 
 	})
 	if err != nil {
 		return 0, nil, err
+	}
+	if replay {
+		var body any
+		if err := json.Unmarshal(replayBody, &body); err != nil {
+			return 0, nil, err
+		}
+		return 200, body, nil
 	}
 	attempt := s.runner.Run(ctx, call)
 	updated, err := s.recordAttempt(ctx, callID, attempt)
