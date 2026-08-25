@@ -64,7 +64,9 @@ func (s *SQLiteStore) WithTx(ctx context.Context, fn func(Tx) error) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	if err := fn(&sqliteTx{tx: tx}); err != nil {
-		_ = tx.Commit()
+		// Roll back, not commit: a failed command must leave no partial
+		// samples, leases, coverage cells, evidence, or decisions behind.
+		// The deferred Rollback performs the actual rollback.
 		return err
 	}
 	return tx.Commit()
