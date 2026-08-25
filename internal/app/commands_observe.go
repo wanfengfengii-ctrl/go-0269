@@ -239,6 +239,12 @@ func (s *Service) CreateRecheck(ctx context.Context, opID, taskID string, req Re
 		if err != nil {
 			return 0, nil, mapStoreErr(err)
 		}
+		if t.State.Terminal() {
+			return 0, nil, domain.NewError(domain.ErrInvalidStateTransition, t.State, domain.Reason{
+				Code:    "TERMINAL",
+				Message: "task is terminal; recheck cannot be written",
+			})
+		}
 		if err := requireGeneration(t, req.Generation); err != nil {
 			return 0, nil, err
 		}
