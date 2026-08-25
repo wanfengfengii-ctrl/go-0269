@@ -56,6 +56,26 @@ func (s *Service) StartInstrumentCall(ctx context.Context, opID, taskID string, 
 			replay = true
 			return nil
 		}
+		// The operation is new, but the same call content may already have been
+		// persisted under a different operation ID — for example, an upstream
+		// gateway that never saw the creation response resent the identical
+		// request with a fresh Operation-Id. Because the call ID is derived
+		// from the content hash, an identical request maps to the same call ID.
+		// In that case replay the existing call's state instead of recreating
+		// it: recreating would overwrite attempts_json via the upsert and so
+		// destroy the recorded attempt chain and the retry schedule recovery
+		// depends on.
+		existingCall, err := tx.GetInstrumentCall(ctx, callID)
+		if err != nil && err != store.ErrNotFound {
+			return mapStoreErr(err)
+		}
+		if existingCall != nil {
+			call = *existingCall
+			replay = true
+			raw, _ := json.Marshal(callView(call))
+			envelope, _ := json.Marshal(opResponse{HTTPStatus: 200, Body: raw})
+			return tx.RecordOperation(ctx, opID, hash, envelope)
+		}
 		t, err := tx.GetTask(ctx, taskID)
 		if err != nil {
 			return mapStoreErr(err)
