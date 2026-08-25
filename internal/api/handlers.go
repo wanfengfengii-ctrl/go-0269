@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"net/http"
 	"strings"
 
@@ -198,7 +197,7 @@ func (s *Server) handleLease(w http.ResponseWriter, r *http.Request, id, op stri
 	var status int
 	var body any
 	var err error
-	ctx := context.Background()
+	ctx := r.Context()
 	switch op {
 	case "acquire":
 		status, body, err = s.svc.AcquireLease(ctx, opID(r), id, lreq)
