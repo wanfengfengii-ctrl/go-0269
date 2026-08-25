@@ -35,6 +35,7 @@ func (s *Service) StartInstrumentCall(ctx context.Context, opID, taskID string, 
 	callID := hash[:24]
 
 	var call domain.InstrumentCall
+	var replayed bool
 	err := s.store.WithTx(ctx, func(tx store.Tx) error {
 		existing, err := tx.GetOperation(ctx, opID)
 		if err != nil {
@@ -52,6 +53,10 @@ func (s *Service) StartInstrumentCall(ctx context.Context, opID, taskID string, 
 				return err
 			}
 			call = *c
+			// A replayed operation must not re-invoke the adapter or append a
+			// second attempt; return the already-persisted call as the first
+			// result.
+			replayed = true
 			return nil
 		}
 		t, err := tx.GetTask(ctx, taskID)
@@ -78,6 +83,9 @@ func (s *Service) StartInstrumentCall(ctx context.Context, opID, taskID string, 
 	if err != nil {
 		return 0, nil, err
 	}
+	if replayed {
+		return 200, callView(call), nil
+	}
 	attempt := s.runner.Run(ctx, call)
 	updated, err := s.recordAttempt(ctx, callID, attempt)
 	if err != nil {
@@ -98,6 +106,7 @@ type RetryRequest struct {
 func (s *Service) RetryInstrumentCall(ctx context.Context, opID, callID string, req RetryRequest) (int, any, error) {
 	hash := contentHash(req)
 	var call domain.InstrumentCall
+	var replayed bool
 	err := s.store.WithTx(ctx, func(tx store.Tx) error {
 		existing, err := tx.GetOperation(ctx, opID)
 		if err != nil {
@@ -110,6 +119,15 @@ func (s *Service) RetryInstrumentCall(ctx context.Context, opID, callID string, 
 					Message: "same operation ID with different content",
 				})
 			}
+			c, err := tx.GetInstrumentCall(ctx, callID)
+			if err != nil {
+				return err
+			}
+			call = *c
+			// A replayed retry must not re-invoke the adapter or append a
+			// second attempt; return the already-persisted call as the first
+			// result.
+			replayed = true
 			return nil
 		}
 		c, err := tx.GetInstrumentCall(ctx, callID)
@@ -141,6 +159,9 @@ func (s *Service) RetryInstrumentCall(ctx context.Context, opID, callID string, 
 	})
 	if err != nil {
 		return 0, nil, err
+	}
+	if replayed {
+		return 200, callView(call), nil
 	}
 	attempt := s.runner.Run(ctx, call)
 	updated, err := s.recordAttempt(ctx, callID, attempt)
